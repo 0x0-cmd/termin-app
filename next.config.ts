@@ -1,9 +1,8 @@
 import type { NextConfig } from "next";
 
+// Die App ist fast vollständig request-abhängig (Login, Live-Kalender, freie Termine),
+// daher bewusst ohne Cache Components.
 const nextConfig: NextConfig = {
-  /* config options here */
-  cacheComponents: true,
-  partialPrefetching: true,
   turbopack: {
     rules: {
       "*.css": {
@@ -12,6 +11,7 @@ const nextConfig: NextConfig = {
       },
     },
   },
+  poweredByHeader: false,
 };
 
 export default nextConfig;

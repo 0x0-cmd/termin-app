@@ -1,36 +1,71 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Termin – Online-Buchung & SMS-Erinnerungen für kleine Dienstleister
 
-## Getting Started
+Phase-1-MVP: Buchungsseite pro Betrieb (`/salon-maria`), Handy-Kalender für den Betrieb und automatische
+SMS-Erinnerungen 24 h vorher mit Bestätigen-/Absagen-Link. Alles auf Deutsch, Daten in der EU.
 
-First, run the development server:
+**Stack:** Next.js 16 (App Router, PWA-Manifest) · Supabase (Postgres + Auth, Region Frankfurt) ·
+SMS über seven.io oder Twilio (austauschbar) · Hosting z. B. Vercel `fra1`.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+## Was drin ist
+
+| Bereich | Pfad | Inhalt |
+|---|---|---|
+| Buchungsseite | `/[slug]` | Leistung → Mitarbeiter (oder „egal“) → freier Termin → Name + Handynummer. Kein Kundenkonto. DSGVO-Einwilligung. |
+| Termin-Link | `/t/[token]` | Aus der SMS: Termin ansehen, bestätigen, absagen. |
+| Kalender | `/app` | Tag (Zeitraster je Mitarbeiter, Tippen auf freie Zeit = Termin eintragen) und Woche. |
+| Termine | `/app/termin/neu`, `/app/termin/[id]` | Für Anrufer per Hand eintragen, verschieben, absagen, „erschienen“/„nicht erschienen“. |
+| Leistungen / Team | `/app/leistungen`, `/app/team` | Dauer, Preis, wer bietet was an. Tarif-Limits (Solo 1, Team 5). |
+| Zeiten | `/app/zeiten` | Öffnungszeiten, Mittagspause je Wochentag, Urlaub/Abwesenheit (Betrieb oder Mitarbeiter, ganztags oder stundenweise). |
+| Einstellungen | `/app/einstellungen` | Buchungslink, SMS-Zähler des Monats, Raster, Vorlauf, Erinnerungszeit. |
+| Erinnerungen | `/api/cron/reminders` | Alle 15 Min. aufrufen; verschickt fällige Erinnerungen genau einmal. |
+
+Wichtige Stellen im Code:
+
+- `supabase/migrations/…_init.sql` – Datenmodell, RLS, Schutz gegen Doppelbuchungen (Exclusion-Constraint).
+- `src/lib/slots.ts` – Berechnung freier Termine (Öffnungszeiten, Pausen, Urlaub, belegte Termine, Sommerzeit). Tests: `slots.test.ts`.
+- `src/lib/messaging/provider.ts` – SMS-Schnittstelle (`MessageProvider`) mit `console`, `seven`, `twilio`. WhatsApp kommt als weiterer Provider dazu.
+- `src/lib/booking.ts`, `src/lib/reminders.ts` – Online-Buchung und Erinnerungs-Job.
+
+## Einrichten
+
+1. **Supabase-Projekt** anlegen, Region **Central EU (Frankfurt)**.
+2. Migration ausführen: Inhalt von `supabase/migrations/20261126000000_init.sql` im SQL-Editor ausführen
+   (oder `supabase link` + `supabase db push`).
+3. **Auth:** E-Mail/Passwort aktivieren. Unter *Authentication → URL Configuration* die Site-URL setzen und
+   `https://<ihre-domain>/auth/confirm` als Redirect-URL eintragen. E-Mail-Vorlagen auf Deutsch übersetzen.
+4. `.env.example` nach `.env.local` kopieren und ausfüllen.
+5. `npm install && npm run dev` → http://localhost:3000/registrieren
+
+Mit `SMS_PROVIDER=console` werden SMS nur ins Server-Log geschrieben – ideal zum Testen.
+
+### Erinnerungs-Job einrichten
+
+Den Endpunkt alle 15 Minuten aufrufen, z. B. direkt aus Supabase (Extensions `pg_cron` und `pg_net` aktivieren):
+
+```sql
+select cron.schedule('termin-reminders', '*/15 * * * *', $$
+  select net.http_get(
+    url := 'https://<ihre-domain>/api/cron/reminders',
+    headers := jsonb_build_object('Authorization', 'Bearer <CRON_SECRET>')
+  );
+$$);
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Alternativ cron-job.org oder Vercel Cron (Vercel Hobby erlaubt nur 1×/Tag – das reicht nicht).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Tests
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm test          # Slot-Berechnung, Telefonnummern
+npx tsc --noEmit
+npm run lint
+```
 
-## Learn More
+## Bewusst noch offen (vor dem Livegang)
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Impressum und Datenschutzerklärung ausfüllen und prüfen lassen; AV-Vertrag mit Betrieben, Supabase und seven.io.
+- Abo/Bezahlung (Stripe Billing) – Tarif steht derzeit nur als Feld `plan` in der Datenbank; SMS-Kontingent wird gezählt, aber nicht gesperrt.
+- Missbrauchsschutz auf der Buchungsseite (Rate-Limit / Captcha).
+- WhatsApp-Versand (benötigt freigegebene Vorlagen beim Anbieter).
+- Arbeitszeiten je Mitarbeiter (derzeit gelten Öffnungszeiten des Betriebs + Abwesenheiten je Mitarbeiter).
+- Phase 2: Anzahlung/Kartenhinterlegung, Warteliste, Buchungsbutton-Widget, Statistik.
