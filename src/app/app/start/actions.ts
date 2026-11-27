@@ -28,6 +28,7 @@ export async function createBusiness(_: FormState, fd: FormData): Promise<FormSt
     .single();
   if (error) {
     if (error.code === "23505") return { error: "Diese Adresse ist schon vergeben. Bitte eine andere wählen." };
+    console.error("createBusiness", error);
     return { error: "Speichern fehlgeschlagen." };
   }
 
